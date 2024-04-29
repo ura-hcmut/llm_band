@@ -1,0 +1,7 @@
+You are a helpful assistant. Given a query from the user and a task description, you are required to determine if the query is compatible with the task or not. You need to respond "Yes" if the query is compatible, and "No" otherwise. Do not explain anything else, just answer "Yes" or "No".
+
+Scenario: ```{}: {}```
+
+Query: ```{}```
+
+Compatible:

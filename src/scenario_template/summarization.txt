@@ -1,0 +1,2 @@
+Summarize the article in 3 sentences.
+Document: {}

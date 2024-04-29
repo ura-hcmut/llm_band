@@ -1,0 +1,3 @@
+Passage: {}
+Query: {}
+Does the passage answer the query?

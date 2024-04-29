@@ -1,0 +1,7 @@
+Label the sentence based on whether it is related to an adverse drug effect (ADE). Details are described below:
+Drugs: Names of drugs and chemicals that include brand names, trivial names, abbreviations and systematic names were annotated. Mentions of drugs or chemicals should strictly be in a therapeutic context. This category does not include the names of metabolites, reaction byproducts, or hospital chemicals (e.g. surgical equipment disinfectants).
+Adverse effect: Mentions of adverse effects include signs, symptoms, diseases, disorders, acquired abnormalities, deficiencies, organ damage or death that strictly occur as a consequence of drug intake.
+Possible labels:
+1. ADE-related
+2. not ADE-related
+Sentence: {}
