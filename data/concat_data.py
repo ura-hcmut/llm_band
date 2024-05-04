@@ -1,16 +1,25 @@
 import json
 from datasets import load_dataset
 import time
+import argparse
+
 concat_dataset = []
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Argument Parser for threshold')
+
+    parser.add_argument('--n', type=int, required=True, help='n')
+    args = parser.parse_args()
+    n = int(args.n)
+    
+    data_len = 0
     start_time = time.time()
     print('[+] Starting...')
     
     # question_answering
     print('[+] Generating dataset google/boolq for question_answering...')
     boolq = load_dataset("google/boolq") # 3.68k rows
-    for item in boolq["train"]:
+    for item in list(boolq["train"])[:n]:
         concat_dataset.append(
             {
                 "passage": item["passage"],
@@ -19,12 +28,14 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Question_answering done with {len(boolq['train'])} records...")
+    length = len(list(boolq['train'])[:n])
+    print(f"[+] Question_answering done with {length} records...")
+    data_len += len(list(boolq['train'])[:n])
 
     # summarization
     print('[+] Generating dataset cnn_dailymail for summarization...')
     cnn_dailymail = load_dataset("cnn_dailymail", "1.0.0") # 312k rows
-    for item in cnn_dailymail["train"]:
+    for item in list(cnn_dailymail["train"])[:n]:
         concat_dataset.append(
             {
                 "article": item["article"],
@@ -32,12 +43,14 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Summarization done with {len(cnn_dailymail['train'])} records...")
+    length = len(list(cnn_dailymail['train'])[:n])
+    print(f"[+] Summarization done with {length} records...")
+    data_len += len(list(cnn_dailymail['train'])[:n])
 
     # text_classification
     print('[+] Generating dataset ought/raft for text_classification...')
     raft = load_dataset("ought/raft", "ade_corpus_v2") # 5.05k rows
-    for item in raft["train"]:
+    for item in list(raft["train"])[:n]:
         concat_dataset.append(
             {
                 "sentence": item["Sentence"],
@@ -45,12 +58,14 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Text classification done with {len(raft['train'])} records...")
+    length = len(list(raft['train'])[:n])
+    print(f"[+] Text classification done with {length} records...")
+    data_len += len(list(raft['train'])[:n])
 
     # language
     print('[+] Generating dataset nyu-mll/blimp for language...')
     blimp1 = load_dataset("nyu-mll/blimp", "adjunct_island") # each subset is 1k rows
-    for item in blimp1["train"]:
+    for item in list(blimp1["train"])[:n]:
         concat_dataset.append(
             {
                 "sentence_good": item["sentence_good"],
@@ -59,33 +74,14 @@ if __name__ == "__main__":
             }
         )
 
-    # language
-    blimp2 = load_dataset("nyu-mll/blimp", "causative") # each subset is 1k rows
-    for item in blimp2["train"]:
-        concat_dataset.append(
-            {
-                "sentence_good": item["sentence_good"],
-                "sentence_bad": item["sentence_bad"],
-                "scenario": "language",
-            }
-        )
-
-    # language
-    blimp3 = load_dataset("nyu-mll/blimp", "drop_argument") # each subset is 1k rows
-    for item in blimp3["train"]:
-        concat_dataset.append(
-            {
-                "sentence_good": item["sentence_good"],
-                "sentence_bad": item["sentence_bad"],
-                "scenario": "language",
-            }
-        )
-
-    print(f"[+] Language done with {len(raft['train']) + len(blimp1['train']) + len(blimp3['train'])} records...")
+    length = len(list(blimp1['train'])[:n])
+    print(f"[+] Language done with {length} records...")
+    data_len += len(list(blimp1["train"])[:n])
 
     # knowledge
+    print('[+] Generating dataset lighteval/wikifact for knowledge...')
     wikifact = load_dataset("lighteval/wikifact", "capital") # 950 rows
-    for item in wikifact["train"]:
+    for item in list(wikifact["train"])[:n]:
         concat_dataset.append(
             {
                 "question": item["question"],
@@ -93,33 +89,14 @@ if __name__ == "__main__":
             }
         )
 
-    # knowledge
-    print('[+] Generating dataset truthful_qa for knowledge...')
-    truthful_qa1 = load_dataset("truthful_qa", "generation") # 817 rows
-    for item in truthful_qa1["validation"]:
-        concat_dataset.append(
-            {
-                "question": item["question"],
-                "scenario": "knowledge",
-            }
-        )
-
-    # knowledge
-    truthful_qa2 = load_dataset("truthful_qa", "multiple_choice") # 817 rows
-    for item in truthful_qa2["validation"]:
-        concat_dataset.append(
-            {
-                "question": item["question"],
-                "scenario": "knowledge",
-            }
-        )
-
-    print(f"[+] Knowledge done with {len(wikifact['train']) + len(truthful_qa1['validation']) + len(truthful_qa2['validation'])} records...")
+    length = len(list(wikifact['train'])[:n])
+    print(f"[+] Knowledge done with {length} records...")
+    data_len += len(list(wikifact["train"])[:n])
 
     # harms
     print('[+] Generating dataset lighteval/disinformation for harms...')
     disinformation1 = load_dataset("lighteval/disinformation", "reiteration_climate") # 49 rows
-    for item in disinformation1["validation"]:
+    for item in list(disinformation1["validation"])[:n]:
         concat_dataset.append(
             {
                 "text": item["text"],
@@ -127,22 +104,14 @@ if __name__ == "__main__":
             }
         )
 
-    # harms
-    disinformation2 = load_dataset("lighteval/disinformation", "reiteration_covid") # 38 rows
-    for item in disinformation2["validation"]:
-        concat_dataset.append(
-            {
-                "text": item["text"],
-                "scenario": "harms",
-            }
-        )
-
-    print(f"[+] Harms done with {len(disinformation1['validation']) + len(disinformation2['validation'])} records...")
+    length = len(list(disinformation1['validation'])[:n])
+    print(f"[+] Harms done with {length} records...")
+    data_len += len(list(disinformation1['validation'])[:n])
 
     # sentiment_analysis
     print('[+] Generating dataset stanfordnlp/imdb for sentiment_analysis...')
     imdb = load_dataset("stanfordnlp/imdb") # 25k rows
-    for item in imdb["train"]:
+    for item in list(imdb["train"])[:n]:
         concat_dataset.append(
             {
                 "text": item["text"],
@@ -150,12 +119,14 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Sentiment analysis done with {len(imdb['train'])} records...")
+    length = len(list(imdb['train'])[:n])
+    print(f"[+] Sentiment analysis done with {length} records...")
+    data_len += len(list(imdb['train'])[:n])
 
     # toxicity_detection
     print('[+] Generating dataset google/civil_comments for toxicity_detection...')
     civil_comments = load_dataset("google/civil_comments")
-    for item in civil_comments["train"]:
+    for item in list(civil_comments["validation"])[:n]:
         concat_dataset.append(
             {
                 "text": item["text"],
@@ -163,12 +134,14 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Toxicity detection done with {len(civil_comments['train'])} records...")
+    length = len(list(civil_comments['validation'])[:n])
+    print(f"[+] Toxicity detection done with {length} records...")
+    data_len += len(list(civil_comments['validation'])[:n])
 
     # reasoning
     print('[+] Generating dataset lighteval/synthetic_reasoning_natural for reasoning...')
     synthetic_reasoning_natural = load_dataset("lighteval/synthetic_reasoning_natural", "easy")
-    for item in synthetic_reasoning_natural["train"]:
+    for item in list(synthetic_reasoning_natural["train"])[:n]:
         concat_dataset.append(
             {
                 "question": item["question"],
@@ -176,14 +149,18 @@ if __name__ == "__main__":
             }
         )
 
-    print(f"[+] Reasoning done with {len(synthetic_reasoning_natural['train'])} records...")
+    length = len(list(synthetic_reasoning_natural['train'])[:n])
+    print(f"[+] Reasoning done with {length} records...")
+    data_len += len(list(synthetic_reasoning_natural['train'])[:n])
 
     # information_retrieval
     print('[+] Generating dataset msmarco for information_retrieval...')
     num_of_recs = 0
     mscoco = load_dataset("ms_marco", 'v1.1')
     
-    for item in mscoco["validation"]:
+    for item in list(mscoco["validation"]):
+        if num_of_recs == n:
+            break
         try:
             index_of_1 = item['passages']['is_selected'].index(1)
         except ValueError:
@@ -192,14 +169,16 @@ if __name__ == "__main__":
         concat_dataset.append(
             {
                 "passage": item['passages']["passage_text"][index_of_1],
-                "query": item['query'],
+                "question": item['query'],
                 "scenario": "information_retrieval"
             }
         )
 
     print(f"[+] Information retrieval done with {num_of_recs} records...")
+    data_len += num_of_recs
     with open("data/concat_dataset.json", 'w',encoding="utf-8") as f:
         json.dump(concat_dataset, f, indent=4)
 
     print('DONE!!!')
+    print(f'[+] DATA LENGTH: {data_len}')
     print("--- %s seconds ---" % (time.time() - start_time))

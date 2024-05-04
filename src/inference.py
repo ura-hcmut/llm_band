@@ -6,11 +6,14 @@ import math
 import numpy as np
 import time
 import torch
+import os
+import sys
+import argparse
 
 # init
 DATA_PATH = "data/concat_dataset.json"
 SCEN_TEMPLATE_PATH = "src/scenario_template"
-
+SAVE_PATH = "src/newer_result"
 
 # given scenario set
 SCENARIOS = [
@@ -19,6 +22,7 @@ SCENARIOS = [
     'Reasoning', 'Harms'
 ]
 
+DEVICE = None
 # 'SCENARIOS_INFO':
 # {
 #     name: description
@@ -86,9 +90,23 @@ def load_tokenizer_model(model_path, model_tokenizer):
             @model_tokenizer: path to model tokenizer
         return: tokenizer and model
     '''
-    tokenizer = AutoTokenizer.from_pretrained(model_tokenizer)
-    tokenizer.pad_token_id = tokenizer.eos_token_id # config id
-    model = AutoModelForCausalLM.from_pretrained(model_path)
+    
+    # tokenizer = AutoTokenizer.from_pretrained(model_tokenizer)
+    # tokenizer.pad_token_id = tokenizer.eos_token_id # config id
+    # model = AutoModelForCausalLM.from_pretrained(model_path)
+    # model.to(DEVICE)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map='auto',
+    )
+    model.config.use_cache = True
+    model.config.pretraining_tp = 1
+
+    # Load LLaMA tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_tokenizer, trust_remote_code=True
+    )
     return tokenizer, model
 
 def read_data(path):
@@ -102,7 +120,7 @@ def read_data(path):
     concat_data = json.load(f)
     return concat_data
 
-def store_file(list_to_dump, path):
+def store_file(list_to_dump, path, verbose=False):
     '''
         store_file: store a list in json mode
         params:
@@ -110,20 +128,19 @@ def store_file(list_to_dump, path):
     '''
     with open(path, 'w') as f:
         json.dump(list_to_dump, f, indent = 4)
+        if verbose:
+            print(f"\t\tFile '{path}' has been stored.")
 
 def compute_logprob_and_length(prompts, completions, model, tokenizer):
     completions_logprobs = []
     for prompt, completion in zip(prompts, completions):
-        prompt_tokens = tokenizer(prompt, return_tensors="pt").to(
-            model.device
-        )  # <s> SPIECE_UNDERLINE [tokens]
+        # print(prompt, completion)
+        prompt_tokens = tokenizer(prompt, return_tensors="pt").to(DEVICE)  # <s> SPIECE_UNDERLINE [tokens]
         # Actual number of tokens in completion (without `<s>`)
         prompt_num_tokens = prompt_tokens.input_ids.shape[1] - 1
         completion_tokens = tokenizer(
             f"{completion} {tokenizer.eos_token}", return_tensors="pt"
-        ).to(
-            model.device
-        )  # <s> SPIECE_UNDERLINE [tokens] SPIECE_UNDERLINE </s>
+        ).to(DEVICE)  # <s> SPIECE_UNDERLINE [tokens] SPIECE_UNDERLINE </s>
         # Actual number of tokens in completion (without `<s> SPIECE_UNDERLINE`)
         completion_num_tokens = completion_tokens.input_ids.shape[1] - 1
         if completion_tokens.input_ids[0, 1] == 29871:
@@ -150,7 +167,7 @@ def compute_logprob_and_length(prompts, completions, model, tokenizer):
             ),
         ).squeeze(-1)
         # >>> batch_size, sequence_length
-        completions_logprobs.append(logprobs.detach().numpy() )
+        completions_logprobs.append(logprobs.detach().cpu().numpy() )
     return completions_logprobs
 
 def softmax(lst):
@@ -158,7 +175,7 @@ def softmax(lst):
     sum_of_exp_values = sum(exp_values)
     return [j/sum_of_exp_values for j in exp_values]
 
-def process(concat_data, model, tokenizer, template):
+def process(concat_data, model, tokenizer, template, n_threads, thread_id, resume):
     '''
         process:
         params:
@@ -172,19 +189,28 @@ def process(concat_data, model, tokenizer, template):
     '''
     true_classify = 0
     result = []
+    L = len(concat_data)
     
-    file_idx = 0 # file naming
-    for item in concat_data:
+    for idx, item in enumerate(concat_data):
+        # print(idx)
+        if idx % n_threads != thread_id:
+            continue
+        
         result_element = {
-            'question': "",
             'scenario': "",
             'groundtruth-vector': [],
             'model_vector': [],
             'prediction': ""
         }
-        print('Groundtruth:', item['scenario'])
+        
         result_element['scenario'] = item['scenario']
         scenario = item['scenario']
+
+        if os.path.exists(f'{SAVE_PATH}/{scenario}-{idx}.json') and resume:
+            continue
+            
+        print(f'[{idx}] Groundtruth:', item['scenario'])
+            
         result_element['groundtruth-vector'] = gt_vec[item['scenario']]
         # create command with scenario
         template_scenario = read_prompt(item['scenario'])
@@ -214,51 +240,70 @@ def process(concat_data, model, tokenizer, template):
         else:
             question = item["text"]
             format_template = template_scenario.format(question)
-            
+
+        command_list = []
         for scenario_name, scenario_info in zip(SCENARIOS, SCENARIOS_INFO.keys()):
-            command = template.format(scenario_name, SCENARIOS_INFO[scenario_info], format_template)
-            print('[+] YOUR COMMAND:', command)
-            log_prob = compute_logprob_and_length(command, ["yes"], model, tokenizer)
-            sum_yes = 0
-            for element in log_prob[0][0]:
-                sum_yes += element
+            command_list.append(template.format(scenario_name, SCENARIOS_INFO[scenario_info], format_template))
             
-            # sum_no = 0
-            # for element in log_prob[1][0]:
-            #     sum_no += element
-
-            # p_yes, p_no = softmax([sum_yes,sum_no])
-
-            # if(p_yes >= p_no):
-            result_element['model_vector'].append(sum_yes)
-            # else:
-                # result_element['model_vector'].append(0)
-
-            # print(f'[+] VERIFY {scenario_info}:', "Yes" if p_yes >= p_no else "No")
-
+        log_prob = compute_logprob_and_length(command_list, ["yes"] * 10, model, tokenizer)
+        sums_list = [np.sum(subitem) for subitem in log_prob]
+        sums_list = np.array(sums_list, dtype=np.float32)
+        sums_list = sums_list.tolist()
+        result_element['model_vector'] = sums_list
+        # float32
+        
         # Find the index of the highest probability
-        max_index = np.argmax(result_element['model_vector'])
+        max_index = np.argmax(sums_list)
         result_element['prediction'] = list(SCENARIOS_INFO.keys())[max_index]
-        print(f"PREDICTION: {result_element['prediction']}")
+        print(f"\tPREDICTION: {result_element['prediction']}")
         if result_element['prediction'] == result_element['scenario']:
             true_classify += 1
 
-        store_file(result_element, f'src/result/{scenario}_{file_idx}.json')
-        file_idx = file_idx + 1
+        store_file(result_element, f'{SAVE_PATH}/{scenario}-{idx}.json', verbose=True)
+        
+        # print(f'--- CURRENT: {true_classify} / {len(os.listdir("src/result"))} ---')
+        print(f'\tCURRENT: {idx}/{L}')
 
-    print('------------------------------------------------------------------------------------')
-    print(f'--- ACCURACY: {true_classify} / {len(concat_data)} ---')
+    # print('------------------------------------------------------------------------------------')
+    # print(f'--- ACCURACY: {true_classify} / {len(concat_data)} ---')
     
 
 if __name__ == "__main__":
-    start_time = time.time()
+    parser = argparse.ArgumentParser(description='Argument Parser for N_THREADS, THREAD_ID, and resume')
+
+    parser.add_argument('--N_THREADS', type=int, required=True, help='Number of threads')
+    parser.add_argument('--THREAD_ID', type=int, required=True, help='Thread ID')
+    parser.add_argument('--resume', action='store_true', help='Resume training flag')
+    # parser.add_argument('--device', type=int, help='Device no.')
+
+    args = parser.parse_args()
+
+    N_THREADS = args.N_THREADS
+    THREAD_ID = args.THREAD_ID
+    resume = args.resume
+    
+    DEVICE = torch.device('cuda')
+    
+    if THREAD_ID >= N_THREADS:
+        print(f"THREAD_ID must be in range(N_THREADS)")
+        sys.exit(1)
+        
+    if not os.path.exists("src/result"):
+        # Create the folder if it doesn't exist
+        os.makedirs("src/result")
+        
     prompt_template = read_template("src/template.txt") # template file
     print(f'[+] TEMPLATE LOADED SUCCESSFULLY...')
+    
     model_path = "meta-llama/Llama-2-7b-chat-hf" # model path
     tokenizer_path = "meta-llama/Llama-2-7b-chat-hf" # tokenizer path
     tokenizer, model = load_tokenizer_model(model_path, tokenizer_path)
     print(f'[+] TOKENIZER AND MODEL LOADED SUCCESSFULLY...')
+    
     dataset = read_data(DATA_PATH)
-    print(f'[+] DATASET LOADED SUCCESSFULLY WITH {len(dataset)} records...')
-    process(dataset[:100], model, tokenizer, prompt_template)
-    print("--- %s seconds ---" % (time.time() - start_time))
+    print(f'[+] DATASET LOADED SUCCESSFULLY WITH {len(dataset)} records.')
+    
+    print(f'[+] THREAD {THREAD_ID}/{N_THREADS} WILL START (resume={resume}). Wait 7 seconds to check if something is wrong...')
+    time.sleep(7)
+    
+    process(dataset, model, tokenizer, prompt_template, N_THREADS, THREAD_ID, resume)
